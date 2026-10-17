@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""cal - a tiny calorie tracker.
+
+Usage:
+  cal add "food" 450   Save a food and its calories for today
+  cal today            List today's foods and the total
+"""
+import json
+import sys
+from datetime import date
+from pathlib import Path
+
+DATA_FILE = Path(__file__).resolve().parent / "calories.json"
+
+
+def load():
+    if DATA_FILE.exists():
+        return json.loads(DATA_FILE.read_text())
+    return {}
+
+
+def save(data):
+    DATA_FILE.write_text(json.dumps(data, indent=2))
+
+
+def add(food, calories):
+    data = load()
+    data.setdefault(date.today().isoformat(), []).append(
+        {"food": food, "calories": calories}
+    )
+    save(data)
+    print(f"Added {food} ({calories} cal)")
+
+
+def today():
+    entries = load().get(date.today().isoformat(), [])
+    if not entries:
+        print("Nothing logged today.")
+        return
+    for e in entries:
+        print(f"{e['food']:<25} {e['calories']:>6}")
+    print("-" * 32)
+    print(f"{'Total':<25} {sum(e['calories'] for e in entries):>6}")
+
+
+def main(args):
+    if len(args) == 3 and args[0] == "add":
+        try:
+            calories = int(args[2])
+        except ValueError:
+            sys.exit("Calories must be a whole number.")
+        add(args[1], calories)
+    elif args == ["today"]:
+        today()
+    else:
+        sys.exit(__doc__.strip())
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
