@@ -3,14 +3,17 @@
 
 Usage:
   cal add "food" 450   Save a food and its calories for today
+  cal add "food"       Ask Claude to estimate the calories, then save
   cal today            List today's foods and the total
 """
 import json
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
 
 DATA_FILE = Path(__file__).resolve().parent / "calories.json"
+MIN_ESTIMATE, MAX_ESTIMATE = 1, 5000
 
 
 def load():
@@ -23,13 +26,42 @@ def save(data):
     DATA_FILE.write_text(json.dumps(data, indent=2))
 
 
-def add(food, calories):
+def add(food, calories, estimated=False):
     data = load()
     data.setdefault(date.today().isoformat(), []).append(
         {"food": food, "calories": calories}
     )
     save(data)
-    print(f"Added {food} ({calories} cal)")
+    note = " estimated by Claude" if estimated else ""
+    print(f"Added {food} ({calories} cal{note})")
+
+
+def estimate(food):
+    """Ask claude -p for a calorie estimate; return it only if it passes our checks."""
+    prompt = (
+        f"Estimate the calories in this food: {food}\n"
+        "Reply with only a single whole number. No words, units, or ranges."
+    )
+    try:
+        result = subprocess.run(
+            ["claude", "-p", prompt], capture_output=True, text=True, timeout=60
+        )
+    except FileNotFoundError:
+        sys.exit("Error: 'claude' command not found. Give calories as a number instead.")
+    except subprocess.TimeoutExpired:
+        sys.exit("Error: Claude took too long to reply. Nothing saved.")
+    if result.returncode != 0:
+        sys.exit(f"Error: Claude failed: {result.stderr.strip()}. Nothing saved.")
+    reply = result.stdout.strip()
+    if not (reply.isascii() and reply.isdigit()):
+        sys.exit(f"Error: Claude's reply was not a whole number: {reply!r}. Nothing saved.")
+    calories = int(reply)
+    if not MIN_ESTIMATE <= calories <= MAX_ESTIMATE:
+        sys.exit(
+            f"Error: Claude's estimate {calories} is outside "
+            f"{MIN_ESTIMATE}-{MAX_ESTIMATE}. Nothing saved."
+        )
+    return calories
 
 
 def today():
@@ -50,6 +82,8 @@ def main(args):
         except ValueError:
             sys.exit("Calories must be a whole number.")
         add(args[1], calories)
+    elif len(args) == 2 and args[0] == "add":
+        add(args[1], estimate(args[1]), estimated=True)
     elif args == ["today"]:
         today()
     else:
